@@ -3,16 +3,18 @@
 """
 __author__ = "Mohammad Shahid Siddiqui"
 __license__ = "GPL"
-__version__ = "1.0.0"
+__version__ = "1.0.2"
 __email__ = "mssiddiqui.nz@gmail.com"
-__status__ = "Production"
+__status__ = "Test"
 __copyright__ = "(c) 2021"
-__date__ = "11 May 2021"
+__date__ = "16 May 2021"
 """
 
 import json
 import sys
+import getopt
 import inspect
+from argparse import ArgumentParser
 from subprocess import PIPE, Popen
 from os import chdir, getcwd, path
 from datetime import datetime, time, timedelta
@@ -20,21 +22,22 @@ from pathlib import Path
 from re import match
 
 #Iterations
-START_ITERATION_TIME="2020-10-18T00:00:00"
-ITERATION_INTERVAL="01:15:00"
-MAX_ITERATIONS=30
-EXCHANGE_RATE="0.0006"
+START_ITERATION_TIME="2021-05-17T01:00:00"
+ITERATION_INTERVAL="00:15:00"
+MAX_ITERATIONS=8
+EXCHANGE_RATE="0.00053"
 TARGET_RATE="0.0167"
 
 #Contracts
-AIRCLAIM_SC="freeos1"
-CONFIG_SC="freeoscfg1"
-DIVIDEND_SC="optionsdiv1"
-CURRENCY_SC="freeostoken1"
+AIRCLAIM_SC="freeos2"
+CONFIG_SC="freeoscfg2"
+DIVIDEND_SC="optionsdiv2"
+CURRENCY_SC="freeostoken2"
 
 #Global Settings
 WALLET_DIR = f"{Path.home()}/eosio-wallet"
 BINARY_DIR=f"{Path.home()}/eos-binaries"
+LOG_FILE="eos-deployment.log"
 END_POINT="https://protontestnet.greymass.com"
 CREATE_ACC_FAUCET="https://monitor.testnet.protonchain.com/#account"
 RAM_RESOURCES_GET="https://monitor.testnet.protonchain.com/#faucet"
@@ -43,8 +46,9 @@ proton=f"/usr/local/bin/cleos -u {END_POINT}"
 CURRENCY_OPTION_VAL="350000000000000.0000 OPTION"
 CURRENCY_AIRKEY_VAL="1000000 AIRKEY"
 CURRENCY_FREEOS_VAL="350000000000000.0000 FREEOS"
+XPR_TO_BUY_RAM="25000.0000 XPR"
 
-#Commands
+#Commands - DO NOT Edit
 ACCOUNT="ACCOUNT"
 PASSWORD="PASSWORD"
 ACCOUNT_PATTERN="(^[a-z1-5.]{2,11}[a-z1-5]$)|(^[a-z1-5.]{12}[a-j1-5]$)"
@@ -56,13 +60,8 @@ WALLET_LOCK=f"{proton} wallet lock -n proton_ACCOUNT"
 DEPLOY_CONTRACT=f"{proton} set contract ACCOUNT {BINARY_DIR}/SC_DIR -p ACCOUNT"
 CREATE_CURRENCY=f"{proton} push action ACCOUNT create '[\"ACCOUNT\", \"CURRENCY\"]' -p ACCOUNT"
 BUY_RAM_CMD=f"{proton} push action eosio buyram '[\"PAYER\", \"ACCOUNT\", \"CURRENCY\"]' -p PAYER"
-
-
 GET_ALL_ITERATIONS_CMD=f"{proton} get table {CONFIG_SC} {CONFIG_SC} iterations --limit 1000"
-
 TRANSFER_TOKEN_PERM_CMD=f"{proton} push action {CONFIG_SC} transfadd '[\"TO_ACCOUNT\"]' -p {CONFIG_SC}"
-
-
 EXCHANGE_CMD=f"{proton} push action {CONFIG_SC} currentrate '[EXCHANGE]' -p {CONFIG_SC}@active"
 TARGET_RATE_CMD=f"{proton} push action {CONFIG_SC} targetrate '[EXCHANGE]' -p {CONFIG_SC}@active"
 UPDATE_ITERATION=f"{proton} push action {CONFIG_SC} iterupsert '[ITER, \"START\", \"END\", CLAIM, HOLD]' -p {CONFIG_SC}"
@@ -87,35 +86,32 @@ STAKE_UPSERT_LIST=[[0,0,0,0,0,10,0,0,0,0,0],
                    [80,0,0,0,550,890,0,210,0,0,0],
                    [90,0,0,0,890,1440,0,340,0,0,0],
                    [100,0,0,0,1440,2330,0,550,0,0,0]]
-
-ITERATIONS_TOKENS_ISSUED={    1:[100,0],
-                              2:[125, 0],
-                              3:[150, 0],
-                              4:[175, 0],
-                              5:[200, 275],
-                              6:[225, 375],
-                              7:[250, 488],
-                              8:[275, 613],
-                              9:[300, 750],
-                              10:[325, 900],
-                              11:[350, 1063],
-                              12:[375, 1238],
-                              13:[400, 1425],
-                              14:[425, 1625],
-                              15:[450, 1838],
-                              16:[475, 2063],
-                              17:[500, 2300],
-                              18:[525, 2550],
-                              19:[550, 2813],
-                              20:[575, 3088],
-                              21:[600, 3375],
-                              22:[625, 3675],
-                              23:[650, 3988],
-                              24:[675, 4313],
-                              25:[700, 4650]}
-
+ITERATIONS_TOKENS_ISSUED={1: [100,0],
+                          2: [125, 0],
+                          3: [150, 0],
+                          4: [175, 0],
+                          5: [200, 275],
+                          6: [225, 375],
+                          7: [250, 488],
+                          8: [275, 613],
+                          9: [300, 750],
+                          10: [325, 900],
+                          11: [350, 1063],
+                          12: [375, 1238],
+                          13: [400, 1425],
+                          14: [425, 1625],
+                          15: [450, 1838],
+                          16: [475, 2063],
+                          17: [500, 2300],
+                          18: [525, 2550],
+                          19: [550, 2813],
+                          20: [575, 3088],
+                          21: [600, 3375],
+                          22: [625, 3675],
+                          23: [650, 3988],
+                          24: [675, 4313],
+                          25: [700, 4650]}
 ITERATIONS_TOKENS_DEFAULT=ITERATIONS_TOKENS_ISSUED[25]
-
 abi_map = {AIRCLAIM_SC:"freeos",
         CONFIG_SC:"freeosconfig",
         CURRENCY_SC:"eosio.token",
@@ -137,31 +133,75 @@ class DeployContract(object):
 
         self.iterations=dict()
         self.set_dir()
-        self.initialise()
-
-    def initialise(self):
-        self.set_dir()
+        self.prompt()
         self.evaluate_iterations()
 
     def set_dir(self):
         chdir(WALLET_DIR)
-        self.show(f"Changed Dir: {getcwd()}")
+        self.log(f"Script Started!\nChanged Dir to: {getcwd()}")
+
+    def log(self, message):
+        with open(f"{Path.home()}/{LOG_FILE}", "a") as dfl:
+            dfl.writelines(f"\n{datetime.now()}::{message}")
+
+    def prompt(self):
+        print(f"Please confirm the configuration before continue: ")
+        message=f"\tBlockchain end point = {END_POINT}\n" \
+                f"\tAirClaim Contract Name = {AIRCLAIM_SC}\n" \
+                f"\tFreeOS Config Contract Name = {CONFIG_SC}\n" \
+                f"\tDividend Contract Name = {DIVIDEND_SC}\n" \
+                f"\tTokens Contract Name = {CURRENCY_SC}\n\n" \
+                f"\tAirclaim Iteration Start Time = {START_ITERATION_TIME}\n" \
+                f"\tIteration Interval = {ITERATION_INTERVAL}\n" \
+                f"\tTotal Iterations = {MAX_ITERATIONS}\n" \
+                f"\tExchange Rate = {EXCHANGE_RATE}\n" \
+                f"\tTarget Rate = {TARGET_RATE}\n" \
+                f"\tDefault Vesting Percent = {GLOBAL_PARAMS['vestpercent']}\n"
+        print(message)
+        confirm = input("Are these configurations correct? [Y/n]: ") or "y"
+        if 'y' != confirm.lower():
+            print("\nPlease update the configurations.\nExiting ...\n")
+            sys.exit(0)
 
     def show(self, message, err=None):
         if err:
             err=err.strip()
             message = f"{message} [Error:{err}]"
-        self.log(f"{caller()}: {message}")
-        print(f"{caller()}: {message}")
+        self.log(f"{caller()}(): {message}")
+        print(f"{caller()}(): {message}")
+
+    def verify(self, output, error, pattern=None):
+        message = "executed transaction"
+        false_errors=["Already unlocked", "executed transaction", " version = "]
+        if pattern:
+            false_errors.append(pattern)
+
+        error_msgs =["assertion failure with message","eosio_assert_message assertion failure",
+                     "Failed with error", "Exception"]
+        for line in output.split("\n") + error.split("\n"):
+            for ferr in false_errors:
+                if ferr in line:
+                    break
+            for err in error_msgs:
+                if err in line:
+                    message=err
+                    if ' version = ' in line:
+                        message=line.split('=')[-1].strip()
+
+        for err in error_msgs:
+            if message in err:
+                raise RuntimeError(error)
+        return message
 
     def run(self, cmd):
         status = -1
         proc_output = proc_err = None
         if 'password' in cmd:
-            self.show(f"Executing: {' '.join(cmd.split(' ')[:-1]) + ' *****'}")
+            print(f"{caller()}(): {' '.join(cmd.split(' ')[:-1]) + ' *****'}")
         else:
-            self.show(f"Executing: {cmd}")
+            print(f"{caller()}(): {cmd}")
         try:
+            self.log(f"{caller()}(): {cmd}")
             proc = Popen(cmd, shell=True, stdout=PIPE, stderr=PIPE, universal_newlines=True)
             status = proc.returncode
             proc_output, proc_err = proc.communicate()
@@ -172,15 +212,19 @@ class DeployContract(object):
                     status = -1
                 else:
                     status = 0
+            self.log(f"{caller()}(): status:{status}: output: {proc_output} {proc_err}")
+            self.verify(proc_output, proc_err)
+            return status, proc_output, proc_err
         except Exception as exp:
-            self.show(cmd,repr(exp))
-        finally:
-            self.log(f"{cmd}:{status}:{proc_output}{proc_err}")
+            print (str(exp))
+            self.log(str(exp))
+            ans = input("\nError(s) occured. Do you want to continue (C) or quit (Q) (ENTER to continue)? " or "C")
+            if "q" == ans.lower():
+                self.log(f"Exiting ...\n")
+                print("Exiting ...")
+                sys.exit(-1)
             return status, proc_output, proc_err
 
-    def log(self, message):
-        with open(f"{Path.home()}/deployment.log", "a") as dfl:
-            dfl.writelines(f"\n{datetime.now()}::{message}")
 
     def validate_account(self, account):
         result = match(ACCOUNT_PATTERN, account)
@@ -250,22 +294,27 @@ class DeployContract(object):
     def faucet_register(self,account):
         self.unlock(account)
         s,o,e = self.fetch_pvt_key(account)
-        print (f"Use Public Keys (starting with \"EOS...\" for acount \'{account}\' and register at: {CREATE_ACC_FAUCET}")
+        keys=[]
+        for k in o.split("\""):
+            if "EOS" in k:
+                keys.append(k.strip())
+        print(f"{account} : {keys}")
+        print (f"Use the above public keys for the account \'{account}\' and register at:\n{CREATE_ACC_FAUCET}\n")
         flag = False
         while (not flag):
-            created = input("Have you registered with these keys? [yes/no] ")
+            created = input("\nHave you registered with these keys? [yes/No] ")
             if created.strip().lower() in ['y', 'yes']:
                 flag = True
             else:
-                print(o)
-        self.log(f"Account '{account}' registered at Faucet")
+                print(f"Register on chain -> '{account}' : {keys}")
+        self.show(f"Account '{account}' registered at Faucet")
         return self
 
     def faucet_ram(self, account):
         flag = False
-        print(f"Get the SYS & RAM resources for '{account}' from {RAM_RESOURCES_GET}")
+        print(f"Get the currency to buy SYS & RAM Resources for '{account}' from {RAM_RESOURCES_GET}")
         while(not flag):
-            ram_flag = input("Have yor purchased the resources? [yes/no] ")
+            ram_flag = input("Have yor purchased the resources? [yes/No] ")
             if ram_flag.strip().lower() in ['y', 'yes']:
                 flag = True
         self.log(f"{account} has got resources for contract deployment")
@@ -274,6 +323,7 @@ class DeployContract(object):
     def deploy_contract(self, contract, binary_dir):
         self.unlock(contract)
         self.faucet_ram(contract)
+        self.buy_ram(contract,contract,XPR_TO_BUY_RAM)
         cmd=f"{proton} set contract {contract} {binary_dir} -p {contract}"
         s,o,e=self.run(cmd)
         if f'account {contract} has insufficient ram' in e:
@@ -344,8 +394,10 @@ class DeployContract(object):
             self.iterations[iter_num]=[iter_start, offset_end, tokens[0], tokens[1]]
             self.log(f"After Iteration: {iter_num}: {self.iterations[iter_num]}\n")
         self.log(f"{json.dumps(self.iterations, indent=4)}")
-        print(f"{json.dumps(self.iterations, indent=4)}")
         return self
+
+    def show_iterations(self):
+        self.show(f"{json.dumps(self.iterations, indent=4)}")
 
     def add_time_to_date(self, start_time, time_string = ITERATION_INTERVAL):
         delta_time=datetime.strptime(time_string,"%H:%M:%S")
@@ -406,39 +458,106 @@ class DeployContract(object):
         cmd=f"{proton} get table {AIRCLAIM_SC} {AIRCLAIM_SC} statistics"
         return self.run(cmd)
 
+    def get_version(self, account):
+        version=None
+        self.unlock(account)
+        cmd=f"{proton} push action {account} version '[]' -p {account}@active"
+        s,o,e=self.run(cmd)
+        for line in e.split('\n')+o.split('\n'):
+            if 'version =' in line:
+                version=line.split("=")[-1].strip()
+        self.show(f"Contract: '{account} is deployed with version: {version}'")
+        return version
+
+
+def options():
+    try:
+        opts, args = getopt.getopt(sys.argv[1:],"FhDIVv",
+                                   ["help","iteration","deployment","validate","version","field"])
+    except getopt.GetoptError as err:
+        print("Errr: ", repr(err))
+        sys.exit(2)
+    iteration=deployment=validate=version=field=None
+    for opt, arg in opts:
+        if opt in ['-h', '--help']:
+            print (f"Usage:\n\npython3 {sys.argv[0]} "
+                   f"[-F | --field] "
+                   f"[-I | --iteration] "
+                   f"[-D | --deployment ] "
+                   f"[-V | --validate ] "
+                   f"[-v | --version] "
+                   f"[-h | --help]\n")
+            sys.exit(0)
+        elif opt in ["-I", "--iteration"]:
+            iteration = True
+        elif opt in ["-V", "--validate"]:
+            validate = True
+        elif opt in ["-v", "--version"]:
+            version=True
+        elif opt in ["-D", "--deployment"]:
+            deployment=True
+        elif opt in ["-F", "--field"]:
+            field=True
+    return (iteration, deployment, validate, version, field)
+
 
 def deploy_airclaim():
+    iteration, deployment, validate, version, field = options()
+    target_contracts=[AIRCLAIM_SC, CONFIG_SC, CURRENCY_SC, DIVIDEND_SC]
     deploySC=DeployContract()
 
-    target_contracts=[AIRCLAIM_SC, CONFIG_SC, CURRENCY_SC, DIVIDEND_SC]
+    #Deployment Section
+    if(deployment):
+        print("Deployment started!")
+        for account in target_contracts:
+            deploySC.create_account(account)
 
-    for account in target_contracts:
-        deploySC.create_account(account)
-        deploySC.faucet_register(account)
-        deploySC.deploy_contract(account,f"{BINARY_DIR}/{abi_map.get(account)}")
+        for account in target_contracts:
+            deploySC.faucet_register(account)
 
-    deploySC.create_currency(AIRCLAIM_SC, CURRENCY_OPTION_VAL)
-    deploySC.verify_create_currency(AIRCLAIM_SC,CURRENCY_OPTION_VAL)
+        for account in target_contracts:
+            deploySC.deploy_contract(account,f"{BINARY_DIR}/{abi_map.get(account)}")
 
-    deploySC.create_currency(AIRCLAIM_SC, CURRENCY_AIRKEY_VAL)
-    deploySC.issue_currency(AIRCLAIM_SC, "1000 AIRKEY", "First issue")
-    deploySC.verify_create_currency(AIRCLAIM_SC,CURRENCY_AIRKEY_VAL)
+        #Configuration Section
+        deploySC.create_currency(AIRCLAIM_SC, CURRENCY_OPTION_VAL)
+        deploySC.verify_create_currency(AIRCLAIM_SC,CURRENCY_OPTION_VAL)
 
-    deploySC.create_currency(AIRCLAIM_SC,CURRENCY_FREEOS_VAL)
-    deploySC.verify_create_currency(AIRCLAIM_SC,CURRENCY_FREEOS_VAL)
+        deploySC.create_currency(AIRCLAIM_SC, CURRENCY_AIRKEY_VAL)
+        deploySC.issue_currency(AIRCLAIM_SC, "1000 AIRKEY", "First issue")
+        deploySC.verify_create_currency(AIRCLAIM_SC,CURRENCY_AIRKEY_VAL)
 
-    deploySC.set_global_params()
+        deploySC.create_currency(AIRCLAIM_SC,CURRENCY_FREEOS_VAL)
+        deploySC.verify_create_currency(AIRCLAIM_SC,CURRENCY_FREEOS_VAL)
 
-    deploySC.set_all_iterations()
-    deploySC.update_stake_requirements()
-    deploySC.set_current_exchange_rate()
-    deploySC.set_target_rate()
-    deploySC.get_exchange_rate()
-    deploySC.set_permission_transfer_token()
-    deploySC.read_permission_transfer_token()
-    deploySC.read_statistics_table()
+    #Iterations Section
+    if (iteration):
+        print("Updating Iterations")
+        deploySC.show_iterations()
+        deploySC.set_global_params()
+        deploySC.set_all_iterations()
+        deploySC.update_stake_requirements()
+        deploySC.set_current_exchange_rate()
+        deploySC.set_target_rate()
+        deploySC.get_exchange_rate()
+        deploySC.set_permission_transfer_token()
+
+    if(validate):
+        print("Validating the current state")
+        deploySC.show_iterations()
+        deploySC.get_exchange_rate()
+        deploySC.read_permission_transfer_token()
+        deploySC.read_statistics_table()
+
+    if (version):
+        print ("Checking version of contracts")
+        for account in target_contracts:
+            deploySC.get_version(account)
+
+    if (field):
+        print(f"Executing user actions in the field")
 
 if __name__=='__main__':
     deploy_airclaim()
+    print("Execution complete!\n")
 
 
