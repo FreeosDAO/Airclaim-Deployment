@@ -29,43 +29,21 @@ HOME_DIR=f"{Path.home()}".rstrip('/')
 # Project Settings
 
 END_POINT = "https://protontestnet.greymass.com"
-NFT_USER_FILE = "dividend_nft_users.csv"
 
 WAIT_BEFORE_DIVCOMPUTE_FLAG=True
 
 WALLET_DIR = f"{HOME_DIR}/eosio-wallet"
 ACC_PASSWORD_FILE=f"{WALLET_DIR}/proton_ACCOUNT.psw"
-#BINARY_DIR = f"{WALLET_DIR}/eos-binaries"
 LOG_FILE = f"{HOME_DIR}/dividend-{datetime.now().strftime('%b%d_%H')}.log"
-
 proton = f"/usr/local/bin/cleos -u {END_POINT}"
-#CREATE_ACC_FAUCET = "https://monitor.testnet.protonchain.com/#account"
-#RAM_RESOURCES_GET = "https://monitor.testnet.protonchain.com/#faucet"
-#FILTER="DIV-AUDIT: "
 
 # Contracts
 #AIRCLAIM_SC = "freeos3"
 #CONFIG_SC = "freeoscfg3"
 #CURRENCY_SC = "freeostoken3"
-
 #EOSIO_TOKEN_SC = "eosio.token"
 
-#ACCOUNT_PATTERN = "(^[a-z1-5.]{2,11}[a-z1-5]$)|(^[a-z1-5.]{12}[a-j1-5]$)"
-#CREATE_WALLET_CMD = f"{proton} wallet create -n proton_ACCOUNT --file {WALLET_DIR}/proton_ACCOUNT.psw"
-#CREATE_KEY_CMD = f"{proton} wallet create_key -n proton_ACCOUNT"
-#GET_PVTKEYS_CMD = f"{proton} wallet private_keys -n proton_ACCOUNT --password PASSWORD"
 WALLET_UNLOCK = f"{proton} wallet unlock -n proton_ACCOUNT --password PASSWORD"
-#WALLET_LOCK = f"{proton} wallet lock -n proton_ACCOUNT"
-
-#BUY_RAM_CMD = f"{proton} push action eosio buyram '[\"PAYER\", \"ACCOUNT\", \"CURRENCY\"]' -p PAYER"
-#GET_ALL_ITERATIONS_CMD = f"{proton} get table {CONFIG_SC} {CONFIG_SC} iterations --limit 2000"
-
-#UPDATE_ITERATION = f"{proton} push action {CONFIG_SC} iterupsert '[ITER,\"START\",\"END\",CLAIM,HOLD]'
-#STAKED_USER_COUNT_CMD=f"{proton} get scope {AIRCLAIM_SC}  -t users --limit 4999| grep 'scope'"
-#OPTIONS_VESTED_CMD=f"{proton} get table {AIRCLAIM_SC} ACCOUNT VEST_PARAM"
-#REGUSER_CMD=f"{proton} push action {AIRCLAIM_SC} reguser '[\"ACCOUNT\"]' -p ACCOUNT@active"
-#USER_INFO_CMD=f"{proton}  get table {CONFIG_SC} {CONFIG_SC} usersinfo --limit 99999"
-#READ_GLOBAL_TABLE_CMD=f"{proton} get table {CONFIG_SC} {CONFIG_SC} parameters"
 
 caller = lambda: inspect.stack()[2][3]
 log_file_des=open(f"{LOG_FILE}", "a")
@@ -179,12 +157,15 @@ class User(object):
         return s,o,e
 
     def load_password(self):
+        if self.password:
+            return self.password
         passwd_file=ACC_PASSWORD_FILE.replace('ACCOUNT',self.account)
         try:
             with(open(passwd_file)) as pfile:
                 self.password=pfile.readline().strip()
             assert self.password, f"Required: Password for {self.account}"
             self.log(f"Password fetched for account '{self.account}'")
+            return self.password
         except Exception as exp:
             self.show(f"Failed in opening file: '{passwd_file}' : {repr(exp)}")
             sys.exit(-1)
@@ -240,7 +221,7 @@ class Dividend(User):
 
     def fetch_nfts(self):
         # Fetch the whitelist from network
-        cmd=f"{proton} get table {self.account} {self.account} nfts"
+        cmd=f"{proton} get table {self.account} {self.account} nfts --limit 99999"
         s,o,e= self.run(cmd)
         self.show(f"{s}:{o}:{e}")
         try:
@@ -255,7 +236,6 @@ class Dividend(User):
         # Fetch the whitelist from network
         cmd=f"{proton} get table {self.account} {self.account} whitelist"
         s,o,e= self.run(cmd)
-        #self.show(f"{s}:{o}:{e}")
         whitelist=list()
         try:
             whitelist = json.loads(o)["rows"]
@@ -296,11 +276,13 @@ class Dividend(User):
     def populate_nft_users(self, source_file, user_limit):
         with open(source_file) as sf:
             for line in sf.readlines():
-                #print(f"Processing Userfile: {line}")
                 if line.startswith("#"):
                     continue
-                name, *x = line.split(',')
-                self.nft_users[name] = User(name)
+                name,utype,password, *x = line.split(',')
+                if password:
+                    self.nft_users[name] = User(name, password=password)
+                else:
+                    self.nft_users[name] = User(name)
                 user_limit -= 1
                 if user_limit <= 0:
                     break
@@ -348,12 +330,16 @@ class Proposer(User):
         return s,o,e
 
 if __name__=='__main__':
-    NFT_USER_COUNT=10
-    NFT_USER_FILE="user_test.csv"
+    PER_USER_NFT_COUNT=3
+    NFT_USER_COUNT=90
+    NFT_USER_FILE="dividend_30users.csv"
     VOTER_1="voterone3"
     VOTER_2="votertwo3"
     PROPOSER="proposer3"
     DIVIDEND_SC="optionsdiv3"
+
+    MINT_NEW_NFTS=True
+    EXECUTE_DIVID_COMPUTE=True
 
     log_file_des.write(f"{datetime.now()} - Script Started!")
     print(f"{datetime.now()} - Script Started {os.getcwd()} [Logs: {log_file_des.name}]")
@@ -366,33 +352,35 @@ if __name__=='__main__':
     for admin in [dividendSC, proposer, voter1, voter2]:
         admin.unlock_wallet()
 
-    #print(f"Whitelist from Network: {dividendSC.fetch_whitelist()}")
-    #dividendSC.purge_whitelist()
-    #dividendSC.update_whitelist(proposer,voter1, voter2)
+    print(f"Whitelist from Network: {dividendSC.fetch_whitelist()}")
+    dividendSC.purge_whitelist()
+    dividendSC.update_whitelist(proposer,voter1, voter2)
     print(f"Whitelist from Network: {dividendSC.fetch_whitelist()}")
     print(f"Whitelist state: {dividendSC.get_whitelist()}")
 
     dividendSC.populate_nft_users(source_file=NFT_USER_FILE, user_limit=NFT_USER_COUNT)
-    print(dividendSC.nft_users)
+    print(f"Users: {len(dividendSC.nft_users)}\n{dividendSC.nft_users.keys()}")
 
-    for name, nft_user in dividendSC.nft_users.items():
-        dividendSC.show(f"Creating NFT for user {name}: {nft_user}")
-        percent = uniform(0.5, 2.5)
-        option=randint(100,250)
-        #proposer.propose_nft(nft_user.account, 3, 1.5, "200.0000 OPTION")
-        proposer.propose_nft(nft_user.account, 3, percent, f"{option}.0000 OPTION")
-        dividendSC.get_proposal()
-        #Mint NFT for user vy voting as '2'
-        voter1.vote(2)
-        voter2.vote(2)
-        dividendSC.get_proposal()
-        print(f"NFTs minted = {dividendSC.fetch_nfts()}")
+    if MINT_NEW_NFTS:
+        for name, nft_user in dividendSC.nft_users.items():
+            for i in range(PER_USER_NFT_COUNT):
+                dividendSC.show(f"Creating NFT #{i} for user: '{name}'")
+                percent = uniform(0.5, 2.5)
+                option=randint(100,250)
+                proposer.propose_nft(nft_user.account, 3, percent, f"{option}.0000 OPTION")
+                dividendSC.get_proposal()
+                #Mint NFT for user vy voting as '2'
+                voter1.vote(2)
+                voter2.vote(2)
 
-    #Claim for users in iterations
-    #ToDo
+                dividendSC.get_proposal()
+                print(f"NFTs minted = {dividendSC.fetch_nfts()}")
+
+    #Claim for users in iterations - use airclaim script
 
     #call Dividend Compute
-    dividendSC.dividend_compute()
+    if EXECUTE_DIVID_COMPUTE:
+        dividendSC.dividend_compute()
 
     #Clean Up
     message=f"{datetime.now()} - Script Finished [Logs: {log_file_des.name}]"
