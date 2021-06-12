@@ -43,7 +43,7 @@ START_ITER_NUM=100 --> In User Claim Simulation it is to control the iteration, 
 ```
 ## Execute
 
-`$ python3 ./deploysc.py -s -I -D -V`
+`$ python3 ./freeos_system_v7.py -s -I -D -V`
 
 Below confirmation promt appears to ensure that input values are correct and right contracts are configured. 
 > Default behaviour is capitalized when ENTER is pressed.
