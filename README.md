@@ -1,5 +1,5 @@
 # Airclaim-Deployment
-Smart Contracts deployment - AirClaim, Dividend, FreeOS Config
+Smart Contracts deployment - AirClaim, Dividend, Freeos Config
 
 ## Usage
 ```
